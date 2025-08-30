@@ -1,6 +1,7 @@
 import os
 import uuid
-import traceback
+import json  # --- ADD THIS IMPORT ---
+import traceback # --- ADD THIS IMPORT ---
 from flask import Flask, request, jsonify
 from dotenv import load_dotenv
 import firebase_admin
@@ -9,21 +10,38 @@ from firebase_admin import credentials, firestore, storage
 # Import your existing Gemini analyzer functions
 from gemini_analyzer import analyze_report, calculate_score
 
-# --- 1. INITIALIZE FIREBASE ADMIN SDK ---
-# This block runs once when the server starts.
+# --- 1. INITIALIZE FIREBASE ADMIN SDK (UPDATED FOR RENDER) ---
 load_dotenv()
 
-# Use the credentials file you provided
-cred = credentials.Certificate("firebase_credentials.json")
+# This is the new, more robust way to handle credentials.
+# It tries to load from an environment variable first (for Render),
+# and falls back to the local file (for development).
+try:
+    firebase_creds_json_str = os.getenv("FIREBASE_CREDS_JSON")
+    if firebase_creds_json_str:
+        print("Initializing Firebase from environment variable...")
+        cred_json = json.loads(firebase_creds_json_str)
+        cred = credentials.Certificate(cred_json)
+    else:
+        print("Initializing Firebase from local 'firebase_credentials.json' file...")
+        cred = credentials.Certificate("firebase_credentials.json")
 
-# Get the storage bucket name from your .env file
-storage_bucket = os.getenv("STORAGE_BUCKET")
-if not storage_bucket:
-    raise ValueError("STORAGE_BUCKET environment variable not set in .env file.")
+    # Get the storage bucket name from your .env file
+    storage_bucket = os.getenv("STORAGE_BUCKET")
+    if not storage_bucket:
+        raise ValueError("STORAGE_BUCKET environment variable not set in .env file.")
 
-firebase_admin.initialize_app(cred, {
-    'storageBucket': storage_bucket
-})
+    firebase_admin.initialize_app(cred, {
+        'storageBucket': storage_bucket
+    })
+    print("Firebase Admin SDK initialized successfully.")
+except Exception as e:
+    print("!!! CRITICAL: FAILED TO INITIALIZE FIREBASE ADMIN SDK !!!")
+    print(f"Error: {e}")
+    # It's useful to print the traceback to see where the error originates
+    traceback.print_exc()
+    # In a real-world scenario, you might want the app to exit if Firebase fails to init.
+    # For now, we'll let it run so you can see the logs on Render.
 
 # Get a client for Firestore and Storage services
 db = firestore.client()
