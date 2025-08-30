@@ -1,7 +1,8 @@
 import os
 import json
-from google import genai
-from google.genai import types
+import google.generativeai as genai
+from PIL import Image
+import io
 import traceback
 
 def analyze_report(latitude, longitude, category, description, image_file):
@@ -15,7 +16,9 @@ def analyze_report(latitude, longitude, category, description, image_file):
         if not api_key:
             raise ValueError("GEMINI_API_KEY not found in .env file.")
         
-        client = genai.Client(api_key=api_key)
+        # Configure the Gemini API
+        genai.configure(api_key=api_key)
+        model = genai.GenerativeModel('gemini-1.5-flash')
 
         system_prompt = """You are an AI model whose task is to analyze mangrove monitoring data. You will be given user input as a JSON object containing latitude, longitude, a category, and a description, along with an image of the site. Your responsibilities are:
 1. Verify whether the provided latitude and longitude falls inside or near a known mangrove region based on your knowledge.
@@ -32,34 +35,21 @@ Return the output in the following format only, without any markdown formatting:
 }
 """
         
-        user_prompt = f'{{"lat": {latitude}, "lon": {longitude}, "category": "{category}", "description": "{description}"}}'
+        user_prompt = f'{system_prompt}\n\nAnalyze this data: {{"lat": {latitude}, "lon": {longitude}, "category": "{category}", "description": "{description}"}}'
+        
+        # Process the image
         image_bytes = image_file.read()
+        image_file.seek(0)  # Reset file pointer
         
-        contents = [
-            types.Content(
-                role="user",
-                parts=[
-                    types.Part.from_text(text=user_prompt),
-                    types.Part(inline_data={'mime_type': image_file.mimetype, 'data': image_bytes})
-                ]
-            )
-        ]
-        
-        generate_content_config = types.GenerateContentConfig(
-            system_instruction=[types.Part.from_text(text=system_prompt)]
-        )
-
-        model = "gemini-1.5-flash-latest"
+        # Convert image bytes to PIL Image
+        image = Image.open(io.BytesIO(image_bytes))
 
         print("[DEBUG] Making API call to Gemini...")
         
-        response_chunks = client.models.generate_content_stream(
-            model=model,
-            contents=contents,
-            config=generate_content_config,
-        )
+        # Generate content with the model
+        response = model.generate_content([user_prompt, image])
 
-        full_response = "".join(chunk.text for chunk in response_chunks)
+        full_response = response.text
 
         print("--- [DEBUG] Raw AI Response Received ---")
         print(full_response)

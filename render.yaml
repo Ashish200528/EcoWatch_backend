@@ -1,0 +1,15 @@
+services:
+  - type: web
+    name: ecowatch-backend
+    runtime: python3
+    plan: free
+    buildCommand: pip install -r requirements.txt
+    startCommand: gunicorn app:app
+    envVars:
+      - key: PYTHON_VERSION
+        value: 3.11.0
+      - key: PORT
+        value: 5000
+    # Add your environment variables here when deploying
+    # - key: GEMINI_API_KEY
+    #   sync: false  # This means you'll set it manually in Render dashboard

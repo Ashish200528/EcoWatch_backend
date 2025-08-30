@@ -77,6 +77,8 @@ def upload_data():
 
 # -------------------- MAIN --------------------
 if __name__ == "__main__":
-    # The server will run on port 5000 by default
+    # The server will run on port 5000 by default for local development
+    # For production, Render will use the PORT environment variable
     port = int(os.environ.get("PORT", 5000))
-    app.run(host="0.0.0.0", port=port, debug=True)
+    debug_mode = os.environ.get("FLASK_ENV", "development") == "development"
+    app.run(host="0.0.0.0", port=port, debug=debug_mode)
