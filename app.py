@@ -1,21 +1,18 @@
 import os
 import uuid
-import json  # --- ADD THIS IMPORT ---
-import traceback # --- ADD THIS IMPORT ---
+import json
+import traceback
 from flask import Flask, request, jsonify
 from dotenv import load_dotenv
 import firebase_admin
-from firebase_admin import credentials, firestore, storage
+from firebase_admin import credentials, firestore
 
 # Import your existing Gemini analyzer functions
 from gemini_analyzer import analyze_report, calculate_score
 
-# --- 1. INITIALIZE FIREBASE ADMIN SDK (UPDATED FOR RENDER) ---
+# --- 1. INITIALIZE FIREBASE ADMIN SDK (Storage part removed) ---
 load_dotenv()
 
-# This is the new, more robust way to handle credentials.
-# It tries to load from an environment variable first (for Render),
-# and falls back to the local file (for development).
 try:
     firebase_creds_json_str = os.getenv("FIREBASE_CREDS_JSON")
     if firebase_creds_json_str:
@@ -26,26 +23,15 @@ try:
         print("Initializing Firebase from local 'firebase_credentials.json' file...")
         cred = credentials.Certificate("firebase_credentials.json")
 
-    # Get the storage bucket name from your .env file
-    storage_bucket = os.getenv("STORAGE_BUCKET")
-    if not storage_bucket:
-        raise ValueError("STORAGE_BUCKET environment variable not set in .env file.")
-
-    firebase_admin.initialize_app(cred, {
-        'storageBucket': storage_bucket
-    })
-    print("Firebase Admin SDK initialized successfully.")
+    firebase_admin.initialize_app(cred)
+    print("Firebase Admin SDK initialized successfully (for Firestore).")
 except Exception as e:
     print("!!! CRITICAL: FAILED TO INITIALIZE FIREBASE ADMIN SDK !!!")
     print(f"Error: {e}")
-    # It's useful to print the traceback to see where the error originates
     traceback.print_exc()
-    # In a real-world scenario, you might want the app to exit if Firebase fails to init.
-    # For now, we'll let it run so you can see the logs on Render.
 
-# Get a client for Firestore and Storage services
+# Get a client for the Firestore service
 db = firestore.client()
-bucket = storage.bucket()
 
 app = Flask(__name__)
 
@@ -68,30 +54,17 @@ def upload_data():
         latitude = float(request.form.get("latitude", 0.0))
         longitude = float(request.form.get("longitude", 0.0))
         image_file = request.files.get("image")
-        user_uid = request.form.get("uid") # Get the User's UID from Flutter
+        user_uid = request.form.get("uid")
 
         if not all([description, category, latitude, longitude, image_file, user_uid]):
             return jsonify({"error": "Missing required form fields (including uid)"}), 400
 
-        # --- 3. UPLOAD IMAGE TO FIREBASE STORAGE ---
-        # Create a unique filename to prevent overwrites
-        image_filename = f"reports/{uuid.uuid4()}{os.path.splitext(image_file.filename)[1]}"
-        blob = bucket.blob(image_filename)
-        
-        # Upload the file's content
-        blob.upload_from_file(image_file, content_type=image_file.content_type)
-        
-        # Make the file publicly accessible and get its URL
-        blob.make_public()
-        image_url = blob.public_url
-        print(f"Image uploaded successfully: {image_url}")
-
-        # --- 4. SAVE INITIAL UPLOAD TO FIRESTORE ---
+        # --- 3. SAVE INITIAL UPLOAD TO FIRESTORE (image_url removed) ---
         report_doc_ref = db.collection('flutter_to_flask_to_Gemini').document()
         report_data = {
             "category": category,
             "description": description,
-            "image_url": image_url,
+            "image_url": "removed_from_process", # Placeholder
             "latitude": latitude,
             "longitude": longitude,
             "pkey": report_doc_ref.id,
@@ -100,8 +73,8 @@ def upload_data():
         report_doc_ref.set(report_data)
         print(f"Saved initial report to Firestore with key: {report_doc_ref.id}")
 
-        # --- 5. PERFORM AI ANALYSIS & SAVE RESULT ---
-        image_file.seek(0) # Reset file pointer for Gemini
+        # --- 4. PERFORM AI ANALYSIS & SAVE RESULT ---
+        image_file.seek(0)
         ai_analysis_result = analyze_report(
             latitude=latitude, longitude=longitude, category=category,
             description=description, image_file=image_file
@@ -115,7 +88,7 @@ def upload_data():
             analysis_doc_ref.set(analysis_data)
             print("Saved AI analysis result to Firestore.")
         
-        # --- 6. PERFORM GAMIFICATION SCORING & SAVE RESULT ---
+        # --- 5. PERFORM GAMIFICATION SCORING & SAVE RESULT ---
         score_result = {}
         if "error" not in ai_analysis_result:
             score_result = calculate_score(
@@ -131,7 +104,7 @@ def upload_data():
                 gamification_doc_ref.set(gamification_data)
                 print("Saved gamification score result to Firestore.")
 
-                # --- 7. UPDATE USER'S TOTAL POINTS ---
+                # --- 6. UPDATE USER'S TOTAL POINTS ---
                 total_score_earned = gamification_data.get("total_score", 0)
                 if total_score_earned > 0:
                     user_ref = db.collection('users').document(user_uid)
@@ -140,18 +113,17 @@ def upload_data():
                     })
                     print(f"Updated user {user_uid} points by {total_score_earned}.")
 
-        # --- 8. RETURN SUCCESS RESPONSE ---
+        # --- 7. RETURN SUCCESS RESPONSE ---
         return jsonify({
-            "message": "Data processed and stored successfully.",
+            "message": "Data processed successfully (image not stored).",
             "report_id": report_doc_ref.id,
-            "image_url": image_url,
             "initial_analysis": ai_analysis_result,
             "final_score": score_result
         }), 200
 
     except Exception as e:
         print(f"An error occurred in the /upload route: {e}")
-        traceback.print_exc() # Print full error for debugging
+        traceback.print_exc()
         return jsonify({"error": "An internal server error occurred.", "details": str(e)}), 500
 
 # -------------------- MAIN --------------------
