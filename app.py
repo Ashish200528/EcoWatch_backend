@@ -54,7 +54,10 @@ def upload_data():
         latitude = float(request.form.get("latitude", 0.0))
         longitude = float(request.form.get("longitude", 0.0))
         image_file = request.files.get("image")
-        user_uid = request.form.get("uid")
+        
+        # --- THIS IS THE FIX ---
+        # Changed "user_uuid" to "uid" to match what the Flutter app sends.
+        user_uid = request.form.get("uid") 
 
         if not all([description, category, latitude, longitude, image_file, user_uid]):
             return jsonify({"error": "Missing required form fields (including uid)"}), 400
@@ -131,4 +134,3 @@ if __name__ == "__main__":
     port = int(os.environ.get("PORT", 5000))
     debug_mode = os.environ.get("FLASK_ENV", "development") == "development"
     app.run(host="0.0.0.0", port=port, debug=debug_mode)
-
